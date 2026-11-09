@@ -116,3 +116,7 @@ ruff check simplecrawl tests sites
 pip install -e ".[dev]"                 # 库 + 开发工具
 python -m playwright install chromium   # playwright 引擎需要
 ```
+
+## License
+
+[MIT](LICENSE)
