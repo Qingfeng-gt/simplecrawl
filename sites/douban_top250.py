@@ -21,6 +21,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from simplecrawl import Crawler
 
 limit = int(os.environ["LIMIT"]) if os.environ.get("LIMIT") else None
+headless = os.environ.get("HEADFUL") != "1"
+slow_mo = float(os.environ.get("SLOW_MO", "0"))
 
 rows = Crawler(
     start_url="https://movie.douban.com/top250",
@@ -41,6 +43,8 @@ rows = Crawler(
     },
     output="data/douban_top250.jsonl",
     engine="playwright",           # 详情页有 JS 验证，必须用浏览器
+    headless=headless,             # HEADFUL=1 显示浏览器
+    slow_mo=slow_mo,               # SLOW_MO=300 每步放慢 300ms
     wait_for="div.article, span[property='v:itemreviewed']",  # 列表页/详情页任一出现即可
     headers={
         "User-Agent": (

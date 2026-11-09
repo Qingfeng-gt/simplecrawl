@@ -94,6 +94,11 @@ def _postprocess(found: list[Any], spec: dict[str, Any]) -> list[Any]:
 
     if spec.get("strip", True):
         found = [v.strip() if isinstance(v, str) else v for v in found]
+
+    if spec.get("prefix"):
+        prefix = spec["prefix"]
+        found = [prefix + v if isinstance(v, str) and v.startswith("/") else v for v in found]
+
     return [v for v in found if v not in (None, "")]
 
 

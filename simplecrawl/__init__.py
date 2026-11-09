@@ -10,7 +10,8 @@
     ).run()
 """
 
+from simplecrawl.api import ApiCrawler
 from simplecrawl.crawler import Crawler
 
-__all__ = ["Crawler"]
+__all__ = ["ApiCrawler", "Crawler"]
 __version__ = "0.1.0"

@@ -60,6 +60,28 @@ def test_page_regex_field(site_server: str, tmp_path: Path) -> None:
     assert rows[0]["raw_title"] == "Detail One"
 
 
+def test_rows_mode(site_server: str) -> None:
+    rows = Crawler(
+        f"{site_server}/index.html",
+        rows="article.item",
+        fields={"title": "a.title::text", "href": "a.title::attr(href)"},
+        verbose=False,
+    ).run()
+    assert [row["title"] for row in rows] == ["Detail One", "Detail Two"]
+    assert rows[0]["href"] == "detail1.html"
+
+
+def test_rows_mode_limit(site_server: str) -> None:
+    rows = Crawler(
+        f"{site_server}/index.html",
+        rows="article.item",
+        fields={"title": "a.title::text"},
+        limit=1,
+        verbose=False,
+    ).run()
+    assert len(rows) == 1
+
+
 def test_verbose_progress(site_server: str, capsys: Any) -> None:
     _crawl(site_server, verbose=True, progress_interval=0.2)
     err = capsys.readouterr().err
