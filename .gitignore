@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.coverage
+
+# Runtime
+data/
+.env
+
+# Archive of the old framework; delete when no longer needed
+_legacy/
+
+# IDE
+.idea/
+.vscode/
