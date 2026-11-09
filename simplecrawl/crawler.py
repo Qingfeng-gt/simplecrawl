@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import sys
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from typing import Any
@@ -62,6 +64,8 @@ class Crawler:
         respect_robots: bool = False,
         retry_on_blocked: bool = True,
         use_session_pool: bool = True,
+        verbose: bool = True,
+        progress_interval: float = 5.0,
         wait_until: str = "domcontentloaded",
         wait_for: str | None = None,
     ) -> None:
@@ -88,6 +92,8 @@ class Crawler:
         self.respect_robots = respect_robots
         self.retry_on_blocked = retry_on_blocked
         self.use_session_pool = use_session_pool
+        self.verbose = verbose
+        self.progress_interval = progress_interval
         self.wait_until = wait_until
         self.wait_for = wait_for
 
@@ -97,6 +103,10 @@ class Crawler:
         self._per_row = None
         self._bulk = None
         self._close = None
+        self._current_url = ""
+        self._last_activity = 0.0
+        self._request_starts: dict[str, float] = {}
+        self._started_at = 0.0
 
     # ------------------------------------------------------------------ 入口
 
@@ -114,6 +124,10 @@ class Crawler:
     async def _run_async(self) -> list[dict[str, Any]]:
         self._rows.clear()
         self._list_pages = 0
+        self._current_url = ""
+        self._request_starts.clear()
+        self._started_at = time.monotonic()
+        self._last_activity = self._started_at
         self._per_row, self._bulk, self._close = resolve_output(self._output)
 
         # Crawlee 的存储实例是全局缓存的；不清掉的话第二次 run() 会复用一个已耗尽的队列
@@ -126,16 +140,67 @@ class Crawler:
         async def handler(context: Any) -> None:
             await self._handle(context)
 
+        @crawler.pre_navigation_hook
+        async def before_navigation(context: Any) -> None:
+            self._current_url = context.request.url
+            self._last_activity = time.monotonic()
+            self._request_starts[context.request.url] = self._last_activity
+            self._say(f"[请求] {context.request.url}")
+
         initial = [
             self._request(url, "list" if self.detail else "detail") for url in self.starts
         ]
+
+        self._say(
+            f"[开始] 引擎={self.engine} 入口={len(initial)} 并发={self.concurrency} "
+            f"间隔={self.delay}s 输出={self._output or '返回值'}"
+        )
+        heartbeat = asyncio.create_task(self._heartbeat()) if self.verbose else None
+
         try:
             await crawler.run(initial)
         finally:
+            if heartbeat is not None:
+                heartbeat.cancel()
+                try:
+                    await heartbeat
+                except asyncio.CancelledError:
+                    pass
             if self._close:
                 self._close()
             write_bulk(self._bulk, self._rows)
+
+        finished, failed, retries = self._crawlee_stats()
+        self._say(
+            f"[完成] {len(self._rows)} 行 | 用时 {_fmt_duration(time.monotonic() - self._started_at)} "
+            f"| 请求完成 {finished} 失败 {failed} 重试 {retries}"
+        )
         return list(self._rows)
+
+    async def _heartbeat(self) -> None:
+        while True:
+            await asyncio.sleep(self.progress_interval)
+            finished, failed, retries = self._crawlee_stats()
+            idle = time.monotonic() - self._last_activity
+            self._say(
+                f"[心跳] 运行 {_fmt_duration(time.monotonic() - self._started_at)} "
+                f"| 完成 {finished} 失败 {failed} 重试 {retries} | 行 {len(self._rows)} "
+                f"| 空闲 {idle:.0f}s | {self._current_url or '-'}"
+            )
+
+    def _crawlee_stats(self) -> tuple[Any, Any, Any]:
+        if self._crawler is None:
+            return 0, 0, 0
+        state = getattr(self._crawler.statistics, "state", None)
+        return (
+            getattr(state, "requests_finished", 0),
+            getattr(state, "requests_failed", 0),
+            getattr(state, "requests_retries", 0),
+        )
+
+    def _say(self, message: str) -> None:
+        if self.verbose:
+            print(f"{time.strftime('%H:%M:%S')} {message}", file=sys.stderr, flush=True)
 
     # ------------------------------------------------------------------ Crawlee
 
@@ -185,6 +250,7 @@ class Crawler:
     # ------------------------------------------------------------------ 处理
 
     async def _handle(self, context: Any) -> None:
+        self._last_activity = time.monotonic()
         if self.delay > 0:
             await asyncio.sleep(self.delay)
 
@@ -210,6 +276,9 @@ class Crawler:
         ]
         if requests:
             await context.add_requests(requests)
+        self._say(
+            f"[列表 {self._list_pages}] {len(requests)} 个详情  {context.request.url}"
+        )
 
         if self.next_page and self._list_pages < self.max_pages:
             href = first(values(sel, html, self.next_page))
@@ -225,6 +294,7 @@ class Crawler:
             if self.strict:
                 raise
             log.warning("detail failed: %s (%s)", context.request.url, exc)
+            self._say(f"[失败] {context.request.url}: {exc}")
             return
 
         row: dict[str, Any] = {"url": context.request.url}
@@ -239,9 +309,16 @@ class Crawler:
                 if self.strict:
                     raise
                 log.warning("field %r failed on %s: %s", name, context.request.url, exc)
+                self._say(f"[警告] 字段 {name} 取不到: {context.request.url}")
                 row[name] = None
 
         self._rows.append(row)
+        started = self._request_starts.pop(context.request.url, None)
+        duration = (
+            f" ({time.monotonic() - started:.1f}s)" if started is not None else ""
+        )
+        title = str(row.get("title") or "-")[:60]
+        self._say(f"[详情 {len(self._rows)}] {title}{duration}  {context.request.url}")
         if self._per_row is not None:
             self._per_row(row)
         if self._limit_reached():
@@ -271,3 +348,10 @@ class Crawler:
     def _stop(self) -> None:
         if self._crawler is not None:
             self._crawler.stop()
+
+
+def _fmt_duration(seconds: float) -> str:
+    total = int(seconds)
+    hours, remainder = divmod(total, 3600)
+    minutes, secs = divmod(remainder, 60)
+    return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes:02d}:{secs:02d}"

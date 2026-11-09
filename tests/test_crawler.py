@@ -60,6 +60,20 @@ def test_page_regex_field(site_server: str, tmp_path: Path) -> None:
     assert rows[0]["raw_title"] == "Detail One"
 
 
+def test_verbose_progress(site_server: str, capsys: Any) -> None:
+    _crawl(site_server, verbose=True, progress_interval=0.2)
+    err = capsys.readouterr().err
+    assert "[开始]" in err
+    assert "[列表 1]" in err
+    assert "[详情 1]" in err
+    assert "[完成]" in err
+
+
+def test_verbose_off_is_silent(site_server: str, capsys: Any) -> None:
+    _crawl(site_server, verbose=False)
+    assert capsys.readouterr().err == ""
+
+
 def test_jsonl_output(site_server: str, tmp_path: Path) -> None:
     path = tmp_path / "out.jsonl"
     _crawl(site_server, output=str(path))

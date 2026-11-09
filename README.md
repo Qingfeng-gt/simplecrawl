@@ -51,6 +51,23 @@ output=lambda row: save_to_mysql(row)      # 每抓一条调用一次
 output=None                                # 不写文件，只用返回值
 ```
 
+## 进度输出
+
+默认把抓取过程打到 stderr，能看出当前在请求哪个 URL、是否卡住：
+
+```text
+10:31:02 [开始] 引擎=http 入口=1 并发=1 间隔=0.0s 输出=data/out.csv
+10:31:02 [请求] https://example.com/list?page=1
+10:31:03 [列表 1] 25 个详情  https://example.com/list?page=1
+10:31:05 [详情 1] 肖申克的救赎 (1.8s)  https://example.com/subject/1292052/
+10:31:07 [心跳] 运行 00:05 | 完成 4 失败 0 重试 0 | 行 3 | 空闲 1s | https://example.com/subject/...
+10:40:11 [完成] 250 行 | 用时 09:09 | 请求完成 260 失败 0 重试 0
+```
+
+- `[心跳]` 每 `progress_interval` 秒（默认 5）打一次；「空闲」持续变大说明卡在当前 URL 上
+- `verbose=False` 可以完全关掉
+- 失败会打 `[失败]` / `[警告]`；Crawlee 自己的重试日志也会出现
+
 ## 其它参数
 
 | 参数 | 说明 |
@@ -69,6 +86,8 @@ output=None                                # 不写文件，只用返回值
 | `respect_robots=True` | 遵守 robots.txt，默认关闭 |
 | `retry_on_blocked=False` | 被判定为封禁时是否换会话重试，默认开启 |
 | `use_session_pool=False` | 是否启用 Crawlee 会话池，默认开启 |
+| `verbose=False` | 关闭过程输出，默认开启 |
+| `progress_interval=5` | 心跳日志间隔秒数 |
 
 ## 目录结构
 
